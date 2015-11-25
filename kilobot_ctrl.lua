@@ -196,7 +196,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 			if (params[1] == 1) then
 				-- send a reply
 				simAddStatusbarMessage("Sending a packed msg with sensor data")
-				simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light()}) )
+				simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light() * 100}) )
 			-- if command == getState
 			elseif (params[1] == 2) then
 				-- send a reply
