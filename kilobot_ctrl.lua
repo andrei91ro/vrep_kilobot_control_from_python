@@ -115,6 +115,10 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		DIR_LEFT = 2
 		DIR_RIGHT = 3
 
+		-- enum signal type
+		SIGNAL_TYPE_GET = 1
+		SIGNAL_TYPE_SET = 2
+
 		--direction global vars
 		direction = DIR_STOP
 		direction_prev = DIR_STOP
@@ -179,36 +183,36 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		--//so the special message controller can also run
 		--/////////////////////////////////////////////////////////////////////////////////////
 
-		--read signal value if available
-		local command = simGetStringSignal('signal')
+			--read signal value if available
+			local command = simGetStringSignal('signal')
 
-		-- if not nil
-		if (command) then
-			-- clear signal to be able to notice a new signal
-			simClearStringSignal('signal')
-			simAddStatusbarMessage('Command received = ' .. command)
-			params = simUnpackInts(command)
-			simAddStatusbarMessage('Param[1] = ' .. params[1])
-			--simAddStatusbarMessage('Param[2] = ' .. params[2])
-			--simAddStatusbarMessage('Param[3] = ' .. params[3])
-			
-			-- if command == getState
-			if (params[1] == 1) then
+			-- if not nil
+			if (command) then
+				-- clear signal to be able to notice a new signal
+				simClearStringSignal('signal')
+				simAddStatusbarMessage('Command received = ' .. command)
+				params = simUnpackInts(command)
+				simAddStatusbarMessage('Param[1] = ' .. params[1])
+				--simAddStatusbarMessage('Param[2] = ' .. params[2])
+				--simAddStatusbarMessage('Param[3] = ' .. params[3])
+				
+				-- if command == getState
+				if (params[1] == SIGNAL_TYPE_GET) then
+					-- send a reply
+					simAddStatusbarMessage("Sending a packed msg with sensor data")
+					simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light() * 100}) )
+				-- if command == getState
+				elseif (params[1] == SIGNAL_TYPE_SET) then
+					-- send a reply
+					simAddStatusbarMessage("Changing my state")
+					set_motion(params[2])
+					set_color(params[3], params[4], params[5])
+					simSetStringSignal('reply_signal', 'i changed my state')
+				else
 				-- send a reply
-				simAddStatusbarMessage("Sending a packed msg with sensor data")
-				simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light() * 100}) )
-			-- if command == getState
-			elseif (params[1] == 2) then
-				-- send a reply
-				simAddStatusbarMessage("Changing my state")
-				set_motion(params[2])
-				set_color(params[3], params[4], params[5])
-				simSetStringSignal('reply_signal', 'i changed my state')
-			else
-			-- send a reply
-				simSetStringSignal('reply_signal', 'i dont know what you want')
+					simSetStringSignal('reply_signal', 'i dont know what you want')
+				end
 			end
-		end
 		--////////////////////////////////////////////////////////////////////////////////////
 		--//END OF USER CODE
 		--////////////////////////////////////////////////////////////////////////////////////
