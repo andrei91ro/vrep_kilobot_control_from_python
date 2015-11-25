@@ -187,8 +187,27 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 			-- clear signal to be able to notice a new signal
 			simClearStringSignal('signal')
 			simAddStatusbarMessage('Command received = ' .. command)
+			params = simUnpackInts(command)
+			simAddStatusbarMessage('Param[1] = ' .. params[1])
+			--simAddStatusbarMessage('Param[2] = ' .. params[2])
+			--simAddStatusbarMessage('Param[3] = ' .. params[3])
+			
+			-- if command == getState
+			if (params[1] == 1) then
+				-- send a reply
+				simAddStatusbarMessage("Sending a packed msg with sensor data")
+				simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light()}) )
+			-- if command == getState
+			elseif (params[1] == 2) then
+				-- send a reply
+				simAddStatusbarMessage("Changing my state")
+				set_motion(params[2])
+				set_color(params[3], params[4], params[5])
+				simSetStringSignal('reply_signal', 'i changed my state')
+			else
 			-- send a reply
-			simSetStringSignal('reply_signal', 'i heard you')
+				simSetStringSignal('reply_signal', 'i dont know what you want')
+			end
 		end
 		--////////////////////////////////////////////////////////////////////////////////////
 		--//END OF USER CODE
