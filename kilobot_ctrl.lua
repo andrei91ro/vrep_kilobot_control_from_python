@@ -119,6 +119,16 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		SIGNAL_TYPE_GET = 1
 		SIGNAL_TYPE_SET = 2
 
+		-- enum signal indexes
+		INDEX_SIGNAL_TYPE   = 1 -- the type of signal received
+		INDEX_SIGNAL_UID    = 2 -- the target / emitter UID on receive / send
+		INDEX_SIGNAL_RECEIVE_MOTION = 3 -- used when with set_motion() on SIGNAL_TYPE_SET
+		-- red, green, blue values for RGB LED
+		INDEX_SIGNAL_RECEIVE_LED_R  = 4
+		INDEX_SIGNAL_RECEIVE_LED_G  = 5
+		INDEX_SIGNAL_RECEIVE_LED_B  = 6
+
+
 		--direction global vars
 		direction = DIR_STOP
 		direction_prev = DIR_STOP
@@ -151,7 +161,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- @param msg_data (uint8_t[9] in C) : data contained in the message
 		-- @param distance (uint8_t in C) : measured distance from the sender
 		function message_rx(msg_data, distance)
-			simAddStatusbarMessage("Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
+			simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
 		end
 
 		--called to construct every sent message
@@ -173,7 +183,14 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		--You should put your inital variable you would like to reset inside this function for your program.
 		function setup()
 			-- get unique robot id from "robotID" parameter
-			kilo_uid = simGetScriptSimulationParameter(sim_handle_self, "robotID", false)
+			--kilo_uid = simGetScriptSimulationParameter(sim_handle_self, "robotID", false)
+
+			--kilo_uid is determined from name suffix in order to automatically add any number of robots with unique UIDs
+			kilo_uid = simGetNameSuffix(simGetScriptName(sim_handle_self))
+			--the source robot has nameSuffix == -1 so his uid should be 0 and clones start from 1
+			if (kilo_uid == -1) then
+				kilo_uid = 0
+			end
 			simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": kilo_uid=" .. kilo_uid)
 		end	
 		
@@ -188,29 +205,32 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
 			-- if not nil
 			if (command) then
-				-- clear signal to be able to notice a new signal
-				simClearStringSignal('signal')
-				simAddStatusbarMessage('Command received = ' .. command)
 				params = simUnpackInts(command)
-				simAddStatusbarMessage('Param[1] = ' .. params[1])
-				--simAddStatusbarMessage('Param[2] = ' .. params[2])
-				--simAddStatusbarMessage('Param[3] = ' .. params[3])
-				
-				-- if command == getState
-				if (params[1] == SIGNAL_TYPE_GET) then
+				-- if this signal was destined for me
+				if (kilo_uid == params[INDEX_SIGNAL_UID]) then
+					-- clear signal to be able to notice a new signal
+					simClearStringSignal('signal')
+					simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Command received = " .. params[INDEX_SIGNAL_TYPE])
+
+					-- if command == getState
+					if (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_GET) then
+						-- send a reply
+						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Sending a packed msg with sensor data")
+						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, distance, get_ambient_light() * 100}) )
+
+					-- if command == setState
+					elseif (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_SET) then
+						-- send a reply
+						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Changing my state")
+						set_motion(params[INDEX_SIGNAL_RECEIVE_MOTION])
+						set_color(params[INDEX_SIGNAL_RECEIVE_LED_R], params[INDEX_SIGNAL_RECEIVE_LED_G], params[INDEX_SIGNAL_RECEIVE_LED_B])
+						simSetStringSignal('reply_signal', simPackInts({kilo_uid, 1})) -- 1 == i changed my state
+
+					-- if command == unrecognized
+					else
 					-- send a reply
-					simAddStatusbarMessage("Sending a packed msg with sensor data")
-					simSetStringSignal('reply_signal', simPackInts( {distance, get_ambient_light() * 100}) )
-				-- if command == getState
-				elseif (params[1] == SIGNAL_TYPE_SET) then
-					-- send a reply
-					simAddStatusbarMessage("Changing my state")
-					set_motion(params[2])
-					set_color(params[3], params[4], params[5])
-					simSetStringSignal('reply_signal', 'i changed my state')
-				else
-				-- send a reply
-					simSetStringSignal('reply_signal', 'i dont know what you want')
+						simSetStringSignal('reply_signal', simPackInts({kilo_uid, 0})) -- 0 == i don't know that you want
+					end
 				end
 			end
 		--////////////////////////////////////////////////////////////////////////////////////
