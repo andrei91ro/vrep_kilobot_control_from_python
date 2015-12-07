@@ -190,6 +190,8 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 			--the source robot has nameSuffix == -1 so his uid should be 0 and clones start from 1
 			if (kilo_uid == -1) then
 				kilo_uid = 0
+			else
+				kilo_uid = kilo_uid + 1
 			end
 			simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": kilo_uid=" .. kilo_uid)
 		end	
