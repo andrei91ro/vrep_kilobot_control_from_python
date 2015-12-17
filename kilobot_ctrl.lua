@@ -152,7 +152,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-------------------------------------------------------------------------------------------------------------------------------------------
 		--global variables
 		-------------------------------------------------------------------------------------------------------------------------------------------
-
+        distanceFromRobot = {} -- latest recorded distance from a robot that sent me a msg, indexed by robot uid
 
 		-------------------------------------------------------------------------------------------------------------------------------------------
 		-- Functions similar to C API
@@ -161,7 +161,8 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- @param msg_data (uint8_t[9] in C) : data contained in the message
 		-- @param distance (uint8_t in C) : measured distance from the sender
 		function message_rx(msg_data, distance)
-			simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
+			--simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
+            distanceFromRobot[msg_data[1]] = distance
 		end
 
 		--called to construct every sent message
@@ -171,7 +172,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- 		data = uint8_t[9] (table of 9 uint8_t)
 		function message_tx()
 			--simAddStatusbarMessage("Message built");
-			return {msg_type=MSG_TYPE_NORMAL, data={11, 22, 33, 44, 55, 66, 77, 88, 99}}
+			return {msg_type=MSG_TYPE_NORMAL, data={kilo_uid, 22, 33, 44, 55, 66, 77, 88, 99}}
 		end
 
 		--called after each successfull message transmission
@@ -194,6 +195,9 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 				kilo_uid = kilo_uid + 1
 			end
 			simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": kilo_uid=" .. kilo_uid)
+
+            -- set distance to me = 0
+            distanceFromRobot[kilo_uid] = 0
 		end	
 		
 		function loop()
@@ -218,7 +222,17 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 					if (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_GET) then
 						-- send a reply
 						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Sending a packed msg with sensor data")
-						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, distance, get_ambient_light() * 100}) )
+                        -- construct variables for keys and values separately
+                        dist_keys = {}
+                        dist_values = {}
+
+                        for k, v in pairs(distanceFromRobot) do
+                            table.insert(dist_keys, k)
+                            table.insert(dist_values, v)
+                        end
+
+						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, get_ambient_light() * 100} ) .. "|" ..
+                            simPackInts(dist_keys) .. "|" .. simPackInts(dist_values) )
 
 					-- if command == setState
 					elseif (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_SET) then
@@ -617,3 +631,5 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 -- with V-REP 3.1.3 and later: 
 end 
 ------------------------------------------------------------------------------ 
+
+
