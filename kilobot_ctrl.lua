@@ -231,6 +231,11 @@ if (sim_call_type==sim_childscriptcall_actuation) then
                             table.insert(dist_values, v)
                         end
 
+                        -- reinitialize distanceFromRobot
+                        distanceFromRobot = {}
+                        -- set distance to me = 0
+                        distanceFromRobot[kilo_uid] = 0
+
 						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, get_ambient_light() * 100} ) .. "|" ..
                             simPackInts(dist_keys) .. "|" .. simPackInts(dist_values) )
 
