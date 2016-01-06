@@ -104,6 +104,15 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		MSG_TYPE_CHARGE = 7
 		MSG_TYPE_RESET = 8
 
+        NR_ROBOT_ID_BYTES = 4 -- number of elements of the robotID table
+
+        -- enum message data indexes
+        INDEX_MSG_OWNER_UID  = 1
+        INDEX_MSG_ROBOT_ID_0 = 2
+        INDEX_MSG_ROBOT_ID_1 = 3
+        INDEX_MSG_ROBOT_ID_2 = 4
+        INDEX_MSG_ROBOT_ID_3 = 5
+
 		--blink auxiliaries
 		DELAY_BLINK = 100 --ms
 		blink_in_progress = 0
@@ -122,7 +131,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- enum signal indexes
 		INDEX_SIGNAL_TYPE   = 1 -- the type of signal received
 		INDEX_SIGNAL_UID    = 2 -- the target / emitter UID on receive / send
-		INDEX_SIGNAL_RECEIVE_MOTION = 3 -- used when with set_motion() on SIGNAL_TYPE_SET
+		INDEX_SIGNAL_RECEIVE_MOTION = 3 -- used with set_motion() on SIGNAL_TYPE_SET
 		-- red, green, blue values for RGB LED
 		INDEX_SIGNAL_RECEIVE_LED_R  = 4
 		INDEX_SIGNAL_RECEIVE_LED_G  = 5
@@ -153,16 +162,238 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		--global variables
 		-------------------------------------------------------------------------------------------------------------------------------------------
         distanceFromRobot = {} -- latest recorded distance from a robot that sent me a msg, indexed by robot uid
+        -- list of robot uids stored as bitmasks (robotIDs[0] = id_s from 0 to 7, robotIDs[1] = ids from 8 to 15, ...)
+        -- should be limited to 8 elements (8 * 8 = 64 ids) because of the 9 int limited message space
+        robotIDs = {0, 0, 0, 0}
 
-		-------------------------------------------------------------------------------------------------------------------------------------------
+        -- construct bitmask table (0, 2, 4, 8, 16, .. 128)
+        bitmask = {}
+        bitmask[0] = 1
+        bitmask[1] = 2
+        bitmask[2] = 4
+        bitmask[3] = 8
+        bitmask[4] = 16
+        bitmask[5] = 32
+        bitmask[6] = 64
+        bitmask[7] = 128
+
+        share_known_robot_ids = true -- toggled at the receive of a setState signal
+
+        -------------------------------------------------------------------------------------------------------------------------------------------
 		-- Functions similar to C API
 		-------------------------------------------------------------------------------------------------------------------------------------------
-		--called for each received message (of type == MSG_TYPE_NORMAL)
+
+        ---------------------------------------------------------------------
+        -- bitwise auxiliary functions from LuaBit
+        -- used because of the lack of builtin support for bitwise functions
+        -- in Lua 5.1 (used by V-REP)
+        -- http://luaforge.net/projects/bit/
+
+        function check_int(n)
+            -- checking not float
+            if(n - math.floor(n) > 0) then
+                error("trying to use bitwise operation on non-integer!")
+            end
+        end
+
+        function to_bits(n)
+            check_int(n)
+            if(n < 0) then
+                -- negative
+                return to_bits(bit.bnot(math.abs(n)) + 1)
+            end
+            -- to bits table
+            local tbl = {}
+            local cnt = 1
+            while (n > 0) do
+                local last = n % 2
+                if(last == 1) then
+                    tbl[cnt] = 1
+                else
+                    tbl[cnt] = 0
+                end
+                n = (n-last)/2
+                cnt = cnt + 1
+            end
+
+            return tbl
+        end
+
+        function tbl_to_number(tbl)
+            local n = table.getn(tbl)
+
+            local rslt = 0
+            local power = 1
+            for i = 1, n do
+                rslt = rslt + tbl[i]*power
+                power = power*2
+            end
+
+            return rslt
+        end
+
+        function expand(tbl_m, tbl_n)
+            local big = {}
+            local small = {}
+            if(table.getn(tbl_m) > table.getn(tbl_n)) then
+                big = tbl_m
+                small = tbl_n
+            else
+                big = tbl_n
+                small = tbl_m
+            end
+            -- expand small
+            for i = table.getn(small) + 1, table.getn(big) do
+                small[i] = 0
+            end
+
+        end
+
+        function bit_or(m, n)
+            local tbl_m = to_bits(m)
+            local tbl_n = to_bits(n)
+            expand(tbl_m, tbl_n)
+
+            local tbl = {}
+            local rslt = math.max(table.getn(tbl_m), table.getn(tbl_n))
+            for i = 1, rslt do
+                if(tbl_m[i]== 0 and tbl_n[i] == 0) then
+                    tbl[i] = 0
+                else
+                    tbl[i] = 1
+                end
+            end
+
+            return tbl_to_number(tbl)
+        end
+
+        function bit_and(m, n)
+            local tbl_m = to_bits(m)
+            local tbl_n = to_bits(n)
+            expand(tbl_m, tbl_n)
+
+            local tbl = {}
+            local rslt = math.max(table.getn(tbl_m), table.getn(tbl_n))
+            for i = 1, rslt do
+                if(tbl_m[i]== 0 or tbl_n[i] == 0) then
+                    tbl[i] = 0
+                else
+                    tbl[i] = 1
+                end
+            end
+
+            return tbl_to_number(tbl)
+        end
+
+        function bit_not(n)
+
+            local tbl = to_bits(n)
+            local size = math.max(table.getn(tbl), 32)
+            for i = 1, size do
+                if(tbl[i] == 1) then
+                    tbl[i] = 0
+                else
+                    tbl[i] = 1
+                end
+            end
+            return tbl_to_number(tbl)
+        end
+
+        --not originally available in LuaBit
+        -- check that mask bit is set in x
+        -- @param mask - int number (bitmask)
+        -- @param x - int number
+        -- @return true / false
+        function bit_test(mask, x)
+            if (bit_and(mask, x) == 0) then
+                return false
+            end
+            return true
+        end
+
+        --end auxiliary bitwise functions
+        ---------------------------------------------------------------------
+        -- convert and store the given id int number into a bitmask used for storage in robotIDs table
+        -- @param id - integer number (uint8_t in C)
+        function setKnownRobotID(id)
+            index = 1
+
+            index = 1
+            subtract = 0
+
+            index = 2
+            subtract = 8
+
+            div_8 = math.floor(id / 8)
+            index = div_8 + 1
+            subtract = div_8 * 8
+
+            -- compensate for the division of ids in 1 byte blocks (every id should now be within [0 - 7]
+            id = id - subtract
+            -- set the bit with number = id as 1 in the robotIDs slot with number = index
+            robotIDs[index] = bit_or(robotIDs[index], bitmask[id])
+        end
+
+        -- convert the robotIDs binary encoded table into a table of decimal id numbers
+        -- @return decTable : decimal tabel of known ids
+        function getTableofKnownRobotIDs()
+            decTable = {}
+
+            for index = 1, 4, 1 do
+                for i = 0, 7, 1 do
+                    -- check that the i-th bit is set in the bitmask with number index from robotIDs
+                    if (bit_test(bitmask[i], robotIDs[index])) then
+                        table.insert(decTable, (index - 1) * 8 + i)
+                    end
+                end
+            end
+
+            return decTable
+        end
+
+        -- convert the robotIDs binary encoded table into a string representation of the decimal table of IDs
+        -- @return decTable : decimal tabel of known ids
+        function getStringTableofKnownRobotIDs()
+            decTable = "{"
+
+            for index = 1, 4, 1 do
+                for i = 0, 7, 1 do
+                    -- check that the i-th bit is set in the bitmask with number index from robotIDs
+                    if (bit_test(bitmask[i], robotIDs[index])) then
+                        decTable = decTable .. ((index - 1) * 8 + i) .. ", "
+                    end
+                end
+            end
+
+            return decTable .. "}"
+        end
+
+        -- join (bitwise OR) two robotID tables
+        -- @param a, b : robotID tables
+        -- @return joined table
+        function joinRobotIdTables(a, b)
+            result = a
+            for i = 1, 4, 1 do
+                result[i] = bit_or(a[i], b[i])
+            end
+
+            return result
+        end
+
+        --called for each received message (of type == MSG_TYPE_NORMAL)
 		-- @param msg_data (uint8_t[9] in C) : data contained in the message
 		-- @param distance (uint8_t in C) : measured distance from the sender
 		function message_rx(msg_data, distance)
 			--simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
-            distanceFromRobot[msg_data[1]] = distance
+            distanceFromRobot[msg_data[INDEX_MSG_OWNER_UID]] = distance
+            -- if the id share period is not over
+            if (share_known_robot_ids) then
+                -- construct received robot id table
+                receivedRobotIDs = {msg_data[INDEX_MSG_ROBOT_ID_0], msg_data[INDEX_MSG_ROBOT_ID_1], msg_data[INDEX_MSG_ROBOT_ID_2], msg_data[INDEX_MSG_ROBOT_ID_3]}
+
+                -- bitwise OR the received table with the local table
+                robotIDs = joinRobotIdTables(robotIDs, receivedRobotIDs)
+            end
 		end
 
 		--called to construct every sent message
@@ -172,7 +403,13 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- 		data = uint8_t[9] (table of 9 uint8_t)
 		function message_tx()
 			--simAddStatusbarMessage("Message built");
-			return {msg_type=MSG_TYPE_NORMAL, data={kilo_uid, 22, 33, 44, 55, 66, 77, 88, 99}}
+            
+            --publish known ids only if share_known is true
+            if (share_known_robot_ids) then
+                return {msg_type=MSG_TYPE_NORMAL, data={kilo_uid, robotIDs[1], robotIDs[2], robotIDs[3], robotIDs[4], 0, 0, 0, 0}}
+            end
+
+            return {msg_type=MSG_TYPE_NORMAL, data={kilo_uid, 0, 0, 0, 0, 0, 0, 0, 0}}
 		end
 
 		--called after each successfull message transmission
@@ -198,8 +435,12 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
             -- set distance to me = 0
             distanceFromRobot[kilo_uid] = 0
-		end	
-		
+            -- set myself as known robot id for other robots
+            setKnownRobotID(kilo_uid)
+
+            simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": knownRobots = " .. getStringTableofKnownRobotIDs())
+		end
+
 		function loop()
 		--/////////////////////////////////////////////////////////////////////////////////////
 		--//user program code goes below.  this code needs to exit in a resonable amount of time
@@ -241,7 +482,14 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
 					-- if command == setState
 					elseif (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_SET) then
-						-- send a reply
+                        -- stop the ID share procedure
+                        if (share_known_robot_ids) then
+                            share_known_robot_ids = false
+                            simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": robot id share ended")
+                            simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": knownRobots = " .. getStringTableofKnownRobotIDs())
+                        end
+
+                        -- send a reply
 						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Changing my state")
 						set_motion(params[INDEX_SIGNAL_RECEIVE_MOTION])
 						set_color(params[INDEX_SIGNAL_RECEIVE_LED_R], params[INDEX_SIGNAL_RECEIVE_LED_G], params[INDEX_SIGNAL_RECEIVE_LED_B])
@@ -636,5 +884,9 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 -- with V-REP 3.1.3 and later: 
 end 
 ------------------------------------------------------------------------------ 
+
+
+
+
 
 
