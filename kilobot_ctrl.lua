@@ -380,6 +380,17 @@ if (sim_call_type==sim_childscriptcall_actuation) then
             return result
         end
 
+        function isRobotIdKnown(id)
+            div_8 = math.floor(id / 8)
+            index = div_8 + 1
+            subtract = div_8 * 8
+
+            -- compensate for the division of ids in 1 byte blocks (every id should now be within [0 - 7]
+            id = id - subtract
+
+            return bit_test(bitmask[id], robotIDs[index])
+        end
+
         --called for each received message (of type == MSG_TYPE_NORMAL)
 		-- @param msg_data (uint8_t[9] in C) : data contained in the message
 		-- @param distance (uint8_t in C) : measured distance from the sender
@@ -403,7 +414,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		-- 		data = uint8_t[9] (table of 9 uint8_t)
 		function message_tx()
 			--simAddStatusbarMessage("Message built");
-            
+
             --publish known ids only if share_known is true
             if (share_known_robot_ids) then
                 return {msg_type=MSG_TYPE_NORMAL, data={kilo_uid, robotIDs[1], robotIDs[2], robotIDs[3], robotIDs[4], 0, 0, 0, 0}}
