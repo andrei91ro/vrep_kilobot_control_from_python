@@ -125,8 +125,9 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		DIR_RIGHT = 3
 
 		-- enum signal type
-		SIGNAL_TYPE_GET = 1
-		SIGNAL_TYPE_SET = 2
+		SIGNAL_TYPE_GET                 = 1
+		SIGNAL_TYPE_SET                 = 2
+		SIGNAL_TYPE_GET_KNOWN_ROBOT_IDS = 3
 
 		-- enum signal indexes
 		INDEX_SIGNAL_TYPE   = 1 -- the type of signal received
@@ -491,15 +492,20 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, get_ambient_light() * 100} ) .. "|" ..
                             simPackInts(dist_keys) .. "|" .. simPackInts(dist_values) )
 
+                    -- if command == getKnownRobotIds
+                    elseif (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_GET_KNOWN_ROBOT_IDS) then
+                        -- send a reply
+						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Sending a packed msg with known robot IDs")
+
+                        -- stop the ID share procedure
+                        share_known_robot_ids = false
+                        simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": robot id share ended")
+                        simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": knownRobots = " .. getStringTableofKnownRobotIDs())
+
+						simSetStringSignal('reply_signal', kilo_uid .. "|" ..  simPackInts(getTableofKnownRobotIDs()))
+
 					-- if command == setState
 					elseif (params[INDEX_SIGNAL_TYPE] == SIGNAL_TYPE_SET) then
-                        -- stop the ID share procedure
-                        if (share_known_robot_ids) then
-                            share_known_robot_ids = false
-                            simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": robot id share ended")
-                            simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": knownRobots = " .. getStringTableofKnownRobotIDs())
-                        end
-
                         -- send a reply
 						simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Changing my state")
 						set_motion(params[INDEX_SIGNAL_RECEIVE_MOTION])
