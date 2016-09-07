@@ -77,7 +77,10 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		BaseHandle=simGetObjectHandle("BatHold")
 	
 		visionHandle=simGetObjectHandle("Vision_sensor")
-		--BatGraphHandle=simGetObjectHandle("BatGraph") -- should be uncommented only for one robot
+        -- check the enableBatteryGraph parameter
+        if (simGetScriptSimulationParameter(sim_handle_self, "enableBatteryGraph", false)) then
+            BatGraphHandle=simGetObjectHandle("BatGraph") -- should be uncommented only for one robot
+        end
 	
 		half_diam=0.0165 -- half_diameter of the robot base
 		
@@ -700,7 +703,10 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		function update_battery()
 			dt=simGetSimulationTimeStep()
 			battery=battery-factLighting*lighting-factMoving*moving-factCPU*cpu
-			--simSetGraphUserData(BatGraphHandle,"Battery",battery)  -- should be uncommented only for one robot
+            -- check the enableBatteryGraph parameter
+            if (simGetScriptSimulationParameter(sim_handle_self, "enableBatteryGraph", false)) then
+                simSetGraphUserData(BatGraphHandle,"Battery",battery)  -- should be uncommented only for one robot
+            end
 		end
 	
 		delay_start=simGetSimulationTime()
