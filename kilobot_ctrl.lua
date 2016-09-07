@@ -159,10 +159,13 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 	
 		reset_substate	= 0
 
+        DELAY_FORGET_NEIGHBORS = 2 -- seconds
+
 		-------------------------------------------------------------------------------------------------------------------------------------------
 		--global variables
 		-------------------------------------------------------------------------------------------------------------------------------------------
         distanceFromRobot = {} -- latest recorded distance from a robot that sent me a msg, indexed by robot uid
+        timeOfLatestMsgFromRobot = {} -- simGetSimulationTime() at the latest msg received from a robot, indexed by robot uid
         -- list of robot uids stored as bitmasks (robotIDs[0] = id_s from 0 to 7, robotIDs[1] = ids from 8 to 15, ...)
         -- should be limited to 8 elements (8 * 8 = 64 ids) because of the 9 int limited message space
         robotIDs = {0, 0, 0, 0}
@@ -398,6 +401,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 		function message_rx(msg_data, distance)
 			--simAddStatusbarMessage(simGetScriptName(sim_handle_self) .. ": Message[1] = " .. msg_data[1] .. " received with distance = " .. distance)
             distanceFromRobot[msg_data[INDEX_MSG_OWNER_UID]] = distance
+            timeOfLatestMsgFromRobot[msg_data[INDEX_MSG_OWNER_UID]] = simGetSimulationTime()
             -- if the id share period is not over
             if (share_known_robot_ids) then
                 -- construct received robot id table
@@ -447,6 +451,7 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
             -- set distance to me = 0
             distanceFromRobot[kilo_uid] = 0
+            timeOfLatestMsgFromRobot[kilo_uid] = simGetSimulationTime() + DELAY_FORGET_NEIGHBORS * 10
             -- set myself as known robot id for other robots
             setKnownRobotID(kilo_uid)
 
@@ -461,6 +466,15 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
 			--read signal value if available
 			local command = simGetStringSignal('signal')
+
+            newDistanceFromRobot = {}
+            for k, v in pairs(distanceFromRobot) do
+                if ((timeOfLatestMsgFromRobot[k] <= simGetSimulationTime() + DELAY_FORGET_NEIGHBORS) or (k == kilo_uid)) then
+                    newDistanceFromRobot[k] = v
+                end
+            end
+
+            distanceFromRobot = newDistanceFromRobot
 
 			-- if not nil
 			if (command) then
@@ -486,8 +500,10 @@ if (sim_call_type==sim_childscriptcall_actuation) then
 
                         -- reinitialize distanceFromRobot
                         distanceFromRobot = {}
+                        timeOfLatestMsgFromRobot = {}
                         -- set distance to me = 0
                         distanceFromRobot[kilo_uid] = 0
+                        timeOfLatestMsgFromRobot[kilo_uid] = simGetSimulationTime() + DELAY_FORGET_NEIGHBORS * 10
 
 						simSetStringSignal('reply_signal', simPackInts( {kilo_uid, get_ambient_light() * 100} ) .. "|" ..
                             simPackInts(dist_keys) .. "|" .. simPackInts(dist_values) )
